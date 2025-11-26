@@ -21,6 +21,9 @@ class DBManager:
             last_indexed TEXT
             ) 
         """)
+        self.cur.execute("CREATE INDEX IF NOT EXISTS idx_filepath ON docs(filepath)")
+        self.cur.execute("CREATE INDEX IF NOT EXISTS idx_file_hash ON docs(file_hash)")
+        self.conn.commit()
 
     def drop_doc_table(self):
         """Drop the docs table if it exists."""

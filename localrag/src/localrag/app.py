@@ -8,14 +8,7 @@ import shutil
 
 from pathlib import Path
 
-from localrag.rag.database.setup_db import DBManager
-from localrag.rag.document_processing import RAGStore
-from localrag.rag.rag import embeddings, invoke_agent
-
 from rich.console import Console
-from rich.markdown import Markdown
-from rich.padding import Padding
-from rich.prompt import Prompt
 
 import re
 
@@ -27,13 +20,10 @@ app = typer.Typer()
 
 @app.command()
 def init():
-    """Inits .rag directory
-    
-    Creates: 
-    - sqlite database: .rag/database.db 
-    - vector store for project: .rag/milvus.db
-    - staging area: .rag/staging
-    """
+    """Initializes localrag project by creating .rag directory"""
+    from localrag.rag.database.setup_db import DBManager
+    from localrag.rag.document_processing import RAGStore
+    from localrag.rag.rag import embeddings
     current_directory = Path(os.getcwd())
     try:
         with console.status("intializing..."):
@@ -58,9 +48,72 @@ def init():
     except Exception as e:
         raise e
 
+@app.command()
+def ls():
+    """ Lists all files currently tracked by the project """
+    from localrag.rag.document_processing import RAGStore
+    from localrag.rag.rag import embeddings
+
+    rag_dir = find_rag_directory(os.getcwd()) + "/.rag/"
+
+    rag = RAGStore(
+        vs_URI=rag_dir + "milvus.db",
+        embeddings= embeddings,
+        sql_URI=rag_dir + "database.db",
+    )
+
+    rag.curr.execute("SELECT * FROM docs")
+    result = rag.curr.fetchall()
+    
+    from rich.table import Table
+
+    table = Table(show_lines=True)
+    table.add_column("id")
+    table.add_column("file path")
+    table.add_column("file hash")
+    table.add_column("chunk_count")
+    table.add_column("last indexed")
+
+    for row in result:
+        table.add_row(*list(map(str, row)))
+
+    rag.close()
+
+    console.print(table)
+
+@app.command()
+def search(query: str):
+    """Similarity search from the vector database directly
+    
+    Args:
+        query (str): the query we want to search the vector DB directly.
+    
+    """
+    from localrag.rag.document_processing import RAGStore
+    from localrag.rag.rag import embeddings
+
+    try:
+        assert check_initialization(), "This is not a localrag project! Please initialize this repo."
+        rag_path = find_rag_directory(os.getcwd())
+        rag = RAGStore(
+            vs_URI=rag_path + "/.rag/milvus.db", 
+            embeddings=embeddings, 
+            sql_URI=rag_path + "/.rag/database.db"
+        )
+        console.print(list(map(lambda x : x.page_content, rag.vector_store.similarity_search(query))))
+    except Exception as e:
+        raise e
+
+
         
 @app.command()
 def add(path: str):
+    """ Adds a file or directory to the staging area 
+    
+    Args:
+        path (str): the path to the file/directory we want to add to the staging area
+    
+    """
     try:
         assert check_initialization(), "This is not a localrag project! Please initialize this repo."
         rag_directory = find_rag_directory(os.getcwd())
@@ -76,16 +129,48 @@ def add(path: str):
 
 @app.command()
 def rm(path: str):
+    """ Removes a file or directory from the staging area 
+    
+    Args: 
+        path (str): the string representation of the path to the file we want to remove from the staging area.
+    """
     try: 
         assert check_initialization, "This is not a localrag project! Please initialize this repo."
         rag_directory = find_rag_directory(os.getcwd())
         os.remove(rag_directory + "/.rag/staging/" + path.split("/")[-1])   
     except Exception as e: 
-        raise e        
+        raise e       
+
+@app.command()
+def reset(hard: bool = False):
+    """ Resets the project by clearing the staging area. If hard is set to True, the full directory is reinitialized.
+    
+    Args:
+        hard (bool): dictates whether the directory needs to be reinitialized.
+    """
+
+    try: 
+        assert check_initialization, "This is not a localrag project! Please initialize this repo."
+        rag_directory = find_rag_directory(os.getcwd())
+        if hard:
+            os.remove(rag_directory + "/.rag")
+            init()
+        else:
+            i = 0
+            for f in os.listdir(rag_directory + "/.rag/staging"):
+                os.remove(rag_directory + "/.rag/staging/" + f)
+                i += 1
+            console.print(f"[yellow]Deleted {i} files from staging area.")
+    except Exception as e:
+        raise e
     
 
 @app.command()
 def commit():
+    """ Adds files from staging area to vector database """
+    from localrag.rag.document_processing import RAGStore
+    from localrag.rag.rag import embeddings
+
     try:
         assert check_initialization(), "This is not a localrag project! Please initialize this repo."
         rag_path = find_rag_directory(os.getcwd())
@@ -95,8 +180,10 @@ def commit():
             sql_URI=rag_path + "/.rag/database.db"
         )
         path = rag_path + "/.rag/staging"
-        for file in os.listdir(path=path):
-            rag.add_documents(path + "/" + file)
+        files_to_process = [path + "/" + file for file in os.listdir(path=path)]
+        print(files_to_process)
+        
+        rag.add_documents_batch(files_to_process)
 
         for file in os.listdir(path=path):
             os.remove(path + "/" + file)
@@ -106,6 +193,12 @@ def commit():
 
 @app.command()
 def ask():
+    """ Prompts the LLM for questions """
+    from localrag.rag.rag import invoke_agent
+    from rich.markdown import Markdown
+    from rich.padding import Padding
+    from rich.prompt import Prompt  
+
     rag_path = find_rag_directory(os.getcwd())
     with open(rag_path + "/.rag/threads.txt", "r") as f:
         thread = f.readline()
@@ -123,6 +216,7 @@ def ask():
 
 @app.command()
 def status():
+    """ Provides a status update of what files are currently in the staging area """
     if check_initialization():
         rag_path = find_rag_directory(os.getcwd())
         status = ""
@@ -134,14 +228,22 @@ def status():
         console.print("[red] This is not a localrag project. Please initialize.")
 
 def check_initialization() -> bool:
+    """ Checks if the project is a part of a localrag project """
     return bool(find_rag_directory(os.getcwd()))
 
+_rag_dirs = {}
+
 def find_rag_directory(current_dir: str) -> str:
-    while current_dir:
-        for element in os.listdir(path=current_dir):
+    """ Finds the closest .rag directory and returns the path to this directory """
+    dir = current_dir
+    if current_dir in _rag_dirs:
+        return _rag_dirs[current_dir]
+    while dir:
+        for element in os.listdir(path=dir):
             if element == ".rag":
-                return current_dir
-        current_dir = "/".join(current_dir.split("/")[:-1])
+                return dir
+        dir = "/".join(dir.split("/")[:-1])
+        _rag_dirs[current_dir] = dir
     return ""
 
 def create_repo_structure_doc(dir) -> str:
@@ -149,15 +251,11 @@ def create_repo_structure_doc(dir) -> str:
     
     Returns: 
         string representation of absolute path to this file
-
-    Notes: 
-        This is not the most optimal way of doing this. We should probably check if the file has changed at all before deleting it, but it should be okay for now.
-    
     """
 
     rag_dir = find_rag_directory(os.getcwd()) + "/.rag"
 
-    structure = " Structure of the repo. Please use this to understand the codebase for this project! \n"
+    structure = "Structure of the repo. Please use this to understand the codebase for this project! \n"
 
     for root, dir, files in os.walk(dir):
         if not (re.search(r"[/\\]\.git[\\/]*", root) or re.search(r"[/\\]\.rag[\\/]*", root)):
@@ -165,11 +263,16 @@ def create_repo_structure_doc(dir) -> str:
 
     file_path = rag_dir+"/repo.txt"
 
-    if os.path.exists(file_path):
-        os.remove(file_path)
+    if os.path.exists(file_path): 
+        with open(file_path, "r") as f:
+            old_content = "\n".join(f.readlines())
 
-    with open(file_path, "x") as f:
-        f.write(structure)
+        if old_content == structure:
+            os.remove(file_path)
+
+    else:
+        with open(file_path, "x") as f:
+            f.write(structure)
 
     return file_path
         

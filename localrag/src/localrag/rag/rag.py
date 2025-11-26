@@ -25,6 +25,15 @@ gemini = ChatGoogleGenerativeAI(
     max_retries=2
 )
 
+summarizer = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash-lite",
+    temperature=0,
+    max_tokens=None,
+    timeout=None,
+    max_retries=2
+)
+
+
 embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
 
 tavily_search = TavilySearch(max_results=3)
@@ -33,6 +42,14 @@ class SearchQuery(BaseModel):
     search_query: str = Field(None, description="Search query for retrieval.")
 
 #---------# TOOLS #-------------#
+_ragstore_cache = {}
+
+def get_ragstore(relational_db_path: str, vector_db_path: str):
+    if not relational_db_path in _ragstore_cache:
+        doc_processor = RAGStore(vector_db_path, embeddings, relational_db_path)
+        _ragstore_cache[relational_db_path] = doc_processor
+    return _ragstore_cache[relational_db_path]
+
 @tool(response_format="content_and_artifact")
 def retrieve_context(query: str, vector_db_path: str, relational_db_path: str) -> tuple[str, list]:
     """Retrieve relevant context from the vector store based on a query.
@@ -43,7 +60,7 @@ def retrieve_context(query: str, vector_db_path: str, relational_db_path: str) -
     Returns:
         A tuple containing (serialized_string, retrieved_documents).
     """
-    doc_processor = RAGStore(vector_db_path, embeddings, relational_db_path)
+    doc_processor = get_ragstore(vector_db_path, relational_db_path)
     retrieved_docs = doc_processor.vector_store.similarity_search(query, k=2)
     serialized = "\n\n".join(
         (f"Source: {doc.metadata}\nContent: {doc.page_content}")
@@ -143,7 +160,7 @@ def summarize_conversation(state: LocalRagState):
         summary_message = "Create a summary of the conversation above:"
 
     messages = state["messages"] + [HumanMessage(content=summary_message)]
-    response = gemini.invoke(messages)
+    response = summarizer.invoke(messages)
     
     # Delete all but the 2 most recent messages
     delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
@@ -159,7 +176,7 @@ def should_continue(state: LocalRagState) -> Literal["tool_node", END]:
     if last_message.tool_calls:
         return "tool_node"
     
-    if len(messages) > 6:
+    if len(messages) > 12:
         return "summarize_conversation"
 
     return END
@@ -179,6 +196,15 @@ app.add_conditional_edges("llm_call",
 
 app.add_edge("tool_node", "llm_call")
 
+_agent_cache = {}
+
+def choose_agent(relational_db_path: str):
+    if relational_db_path not in _agent_cache:
+        conn = sqlite3.connect(relational_db_path, check_same_thread=False)
+        memory = SqliteSaver(conn)
+        _agent_cache[relational_db_path] = app.compile(checkpointer=memory)
+    return _agent_cache[relational_db_path]
+
 def invoke_agent(content: str, vector_db_path : str, relational_db_path: str, config: dict) -> str:
     """Invoke the agent
     
@@ -190,9 +216,7 @@ def invoke_agent(content: str, vector_db_path : str, relational_db_path: str, co
     Returns:
     str: The LLM's text response
      """
-    conn = sqlite3.connect(relational_db_path, check_same_thread=False)
-    memory = SqliteSaver(conn)
-    agent = app.compile(checkpointer=memory)
+    agent = choose_agent(relational_db_path)
 
     messages = [HumanMessage(content=content)]
     result = agent.invoke(

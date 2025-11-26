@@ -41,7 +41,19 @@ class RAGStore:
     sql_URI: the desired URI for the SQL database
     """
 
+    _instances = {}
+
+    def __new__(cls, vs_URI, embeddings, sql_URI):
+        cache_key = (vs_URI, sql_URI)
+        if cache_key not in cls._instances:
+            instance = super().__new__(cls)
+            cls._instances[cache_key] = instance
+            instance._initialized = False
+        return cls._instances[cache_key]
+
     def __init__(self, vs_URI, embeddings, sql_URI):
+        if self._initialized:
+            return
         self.vector_store = Milvus(
             embedding_function=embeddings,
             connection_args={"uri": vs_URI},
@@ -52,6 +64,12 @@ class RAGStore:
         )
         self.conn = sqlite3.connect(sql_URI)
         self.curr = self.conn.cursor()
+        self.conn.commit()
+        self._initialized = True
+
+    def close(self):
+        """Closes sqlite connection"""
+        self.conn.close()
 
     def add_documents(self, file_path: str) -> None:
         """ Adds documents to our various databases.
@@ -83,6 +101,38 @@ class RAGStore:
         if not row:
             return True  
         return row[0] != file_hash  
+
+    def add_documents_batch(self, file_paths: list[str]) -> None:
+        """Batch process multiple documents efficiently"""
+        documents_to_add = []
+        ids_to_add = []
+
+        for file_path in file_paths:
+            file_hash = self.get_file_hash(file_path)
+            if self.validate(file_path, file_hash):
+                splits_uuids = self.process_docs(Path(file_path), file_hash)
+                self.curr.execute("SELECT filepath FROM docs WHERE filepath = (?)", (file_path,))
+                existing = self.curr.fetchall()
+                if existing:
+                    self.remove_doc(file_path)
+                    self.curr.execute("""
+                        UPDATE docs SET file_hash=?, chunk_count=?, last_indexed=?
+                        WHERE filepath=?
+                    """, (file_hash, len(splits_uuids[0]), datetime.now().isoformat(), file_path))
+                else:
+                    self.curr.execute(""" 
+                        INSERT INTO docs (id, filepath, file_hash, chunk_count, last_indexed) 
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (str(uuid.uuid4()), file_path, file_hash, len(splits_uuids[0]), datetime.now().isoformat()))
+                
+                documents_to_add.extend(splits_uuids[0])
+                ids_to_add.extend(splits_uuids[1])
+
+        if documents_to_add:
+            self.vector_store.add_documents(documents=documents_to_add, ids=ids_to_add)
+            self.conn.commit() 
+            print("done this")
+            self.close()   
 
 
     def get_file_hash(self, file_path) -> str:
