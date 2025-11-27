@@ -6,7 +6,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from .document_processing import RAGStore
 from langgraph.graph import MessagesState
 from langchain.tools import tool
-from langchain.messages import SystemMessage, ToolMessage, HumanMessage, RemoveMessage
+from langchain.messages import SystemMessage, ToolMessage, HumanMessage, RemoveMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -256,7 +256,18 @@ def summarize_conversation(state: LocalRagState):
     else:
         summary_message = "Create a summary of the conversation above:"
 
-    messages = state["messages"] + [HumanMessage(content=summary_message)]
+    cleaned_messages = []
+    for msg in state["messages"]:
+        if isinstance(msg, HumanMessage):
+            cleaned_messages.append(HumanMessage(content=msg.content))
+        elif isinstance(msg, ToolMessage):
+            cleaned_messages.append(ToolMessage(content=msg.content, tool_call_id=msg.tool_call_id))
+        elif isinstance(msg, SystemMessage):
+            cleaned_messages.append(SystemMessage(content=msg.content))
+        elif hasattr(msg, 'content'):
+            cleaned_messages.append(AIMessage(content=msg.content))
+    
+    messages = cleaned_messages + [HumanMessage(content=summary_message)]
     response = summarizer.invoke(messages)
     
     # Delete all but the 2 most recent messages

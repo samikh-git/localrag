@@ -58,7 +58,7 @@ class RAGStore:
         self.vector_store = Milvus(
             embedding_function=embeddings,
             connection_args={"uri": vs_URI},
-            index_params= {"index_type": "FLAT", "metric_type": "L2"},
+            index_params= {"index_type": "IVF_FLAT", "metric_type": "L2"},
             primary_field="id",
             text_field="text",
             auto_id=False,
@@ -141,7 +141,6 @@ class RAGStore:
         query= 'SELECT filepath, file_hash FROM docs WHERE filepath IN(%s)' % placeholders
         self.curr.execute(query, paths)
         path_hash_dict = {path : hash for path, hash in self.curr.fetchall()}
-        self.close()
         return path_hash_dict
 
 

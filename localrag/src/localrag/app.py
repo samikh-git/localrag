@@ -41,7 +41,7 @@ def init():
                 f.write(str(uuid.uuid4()))
 
             repo_structure_doc_path = create_repo_structure_doc(os.getcwd())
-            rag.add_documents(repo_structure_doc_path)
+            rag.add_documents(repo_structure_doc_path, False)
         console.print("[green]Created .rag directory. Your local rag project has been initialized!")
     except FileExistsError as e:
        console.print("[red]This is already a localrag project!")
