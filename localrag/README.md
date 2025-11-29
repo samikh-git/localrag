@@ -94,6 +94,12 @@ localrag search "query"
 
 Allows the user to query the vector store directly. This should be used as a sanity check or if you want to see some source code.
 
+```bash
+localrag help
+```
+
+Provides a link to documentation to get helped.
+
 ## Agent Tools
 
 Our agent is equipped with the following tools to answer you questions: 
