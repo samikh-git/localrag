@@ -1,6 +1,6 @@
 # Perpetua
 
-Saturday, November 29, 2025
+*Saturday, November 29, 2025*
 
 Perpetua is a command line tool that allows you to use an LLM to ask questions about the codebase in which you have initialized the Perpetua project. 
 
@@ -23,7 +23,7 @@ You will be prompted for some API keys or names of the local models you want to 
 perpetua init
 ```
 
-This initializes the `.rag` directory. This directory is curcial for naking Perpetua work as all of the files are kept here. Please do not modify the `.rag` directory unless you know what you are doing.
+This initializes the `.rag` directory. This directory is crucial for making Perpetua work as all of the files are kept here. Please do not modify the `.rag` directory unless you know what you are doing.
 
 ### Adding files to the staging area
 
@@ -85,7 +85,7 @@ It lists all files currently being tracked by the project
 perpetua diff
 ```
 
-It shows if there difference between staged files and their tracked versions. Ideally, more information can be provided in the future.
+It shows if there is a difference between staged files and their tracked versions. Ideally, more information can be provided in the future.
 
 ```bash
 perpetua search "query"
@@ -97,15 +97,15 @@ Allows the user to query the vector store directly. This should be used as a san
 perpetua help
 ```
 
-Provides a link to documentation to get helped.
+Provides a link to documentation to get help.
 
 ## Agent Tools
 
-Our agent is equipped with the following tools to answer you questions: 
+Our agent is equipped with the following tools to answer your questions: 
 
-1. **Vector store retrieval**: this is classic RAG using a Milvus vector store contained within the `.rag` directory. Using this tool, the LLM is able to answer questions directly about your codebase. The agent is designed to privelege this tool over the others.
+1. **Vector store retrieval**: this is classic RAG using a Milvus vector store contained within the `.rag` directory. Using this tool, the LLM is able to answer questions directly about your codebase. The agent is designed to privilege this tool over the others.
 2. **Web Search**: this tool is used by the LLM to search the web to answer your questions. As of now, it will answer any question by using this but it is intended to get documentation or most up-to-date information about the tools you are using.
-3. **Knowledge Graph Search**: this tool allows the agent to create create a graph with the codebases' structure. This should allow it to understand interdependencies between the different files and packages.
+3. **Knowledge Graph Search**: this tool allows the agent to create a graph with the codebase's structure. This should allow it to understand interdependencies between the different files and packages.
 
 Tools in development: 
 
@@ -154,7 +154,7 @@ The optional ones are recommended if you want to evaluate/debug the agent if you
 
 ### Installation
 
-Use the wheel in dist. This is the best way to use this project. Additionally, you can download it via pip.
+Run `pip install perpetua` or `brew tap samikh-git/tools` and then `brew install perpetua`.
 
 ### Next steps
 
